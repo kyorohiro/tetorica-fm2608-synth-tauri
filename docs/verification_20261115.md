@@ -75,3 +75,24 @@ remain to be checked. The local build used `--no-sign`. Signed / notarized
 app and DMG builds use `deploy_mac.sh` in the user's local signing environment.
 The macOS Intel, Windows and Linux workflow jobs are configured and await the
 repository's first push. Publishing and tagging remain separate release work.
+
+## FM editing readability follow-up
+
+After the v0.0.5 release, the Web assets were updated through the normal import
+workflow. The desktop app version is `0.0.5`.
+
+- Imported `tetorica_fm2608_synth_dev-20261115-fm-controls_itch.zip`, containing
+  181 verified files. SHA-256 is
+  `bab890ef6999fabed440b672afa52613a314b5902dbcbd7a1262bf9b0805ab44`.
+- ALGO now shows the current operator routing with parentheses, arrows and
+  sums. OP1–OP4 colors match the rows, envelope controls / guides and CH3 labels.
+- RS, AR, D1R, D2R, SL and RR use the envelope color category. Pitch, level
+  and modulation use their existing FM2612 categories.
+- The parent packaged browser suite passes 30 checks per engine, including all
+  eight algorithms, exact OP colors, envelope fields, Code Live and mobile fit.
+  Local screenshots are in `build/fm2608-fm-ui-packaged/` in the parent checkout.
+- Desktop tests pass 33 Python and 47 JavaScript checks. The desktop browser
+  suite passes nine checks per engine. Local reports are
+  `artifacts/fm-ui-tests.log` and `artifacts/fm-ui-desktop-browser.json`.
+- Rebuilt the local arm64 Release app with `--no-sign`. The build log is
+  `artifacts/fm-ui-macos-build.log`.

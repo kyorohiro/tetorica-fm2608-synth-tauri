@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Tetorica FM2608 Synth",
   "productId": "tetorica-fm2608-synth",
-  "version": "dev-20261115-desktop-ready",
+  "version": "dev-20261115-fm-controls",
   "builder": {
     "name": "source-copy",
     "minify": false,
@@ -16,8 +16,8 @@
     {
       "path": "synth-fm2608/synth.js",
       "sourcePath": "docs/synth-fm2608/synth.js",
-      "bytes": 63915,
-      "sha256": "9c4a6ba521e7158941f15d70b35e7d1dad5eaa4e33c6284e037546e266c44756",
+      "bytes": 64923,
+      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9",
       "localImports": [
         "../js/soundchip_pitch.js",
         "../js/tfi.js",
@@ -35,8 +35,8 @@
     {
       "path": "synth-fm2608/synth.css",
       "sourcePath": "docs/synth-fm2608/synth.css",
-      "bytes": 15115,
-      "sha256": "f9b4590fd879382904c45ded997456581dd56f19f06de58376984d1471a39797",
+      "bytes": 16722,
+      "sha256": "bfbac2374d1331587bf972896370a197e3492a58a29d582afad4c16460354624",
       "localImports": [
         "../synth-spu/synth.css"
       ]
@@ -853,8 +853,8 @@
     {
       "path": "synth-fm2608/synth.css",
       "sourcePath": "docs/synth-fm2608/synth.css",
-      "bytes": 15115,
-      "sha256": "f9b4590fd879382904c45ded997456581dd56f19f06de58376984d1471a39797",
+      "bytes": 16722,
+      "sha256": "bfbac2374d1331587bf972896370a197e3492a58a29d582afad4c16460354624",
       "localImports": [
         "../synth-spu/synth.css"
       ]
@@ -862,8 +862,8 @@
     {
       "path": "synth-fm2608/synth.js",
       "sourcePath": "docs/synth-fm2608/synth.js",
-      "bytes": 63915,
-      "sha256": "9c4a6ba521e7158941f15d70b35e7d1dad5eaa4e33c6284e037546e266c44756",
+      "bytes": 64923,
+      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9",
       "localImports": [
         "../js/soundchip_pitch.js",
         "../js/tfi.js",
@@ -1445,8 +1445,8 @@
     },
     {
       "path": "docs/synth-fm2608/index.html",
-      "bytes": 22330,
-      "sha256": "01eb2ce0ec8ea9992ad09f47a2002eb2d201dd2149566f49856b4a392cd8fe52"
+      "bytes": 22670,
+      "sha256": "dc5f2cb5a4baf2911358cb61c620442797e2e4d67bc3c447477c3f3ac7e0bd06"
     },
     {
       "path": "docs/synth-fm2608/output_mix.js",
@@ -1495,13 +1495,13 @@
     },
     {
       "path": "docs/synth-fm2608/synth.css",
-      "bytes": 15115,
-      "sha256": "f9b4590fd879382904c45ded997456581dd56f19f06de58376984d1471a39797"
+      "bytes": 16722,
+      "sha256": "bfbac2374d1331587bf972896370a197e3492a58a29d582afad4c16460354624"
     },
     {
       "path": "docs/synth-fm2608/synth.js",
-      "bytes": 63915,
-      "sha256": "9c4a6ba521e7158941f15d70b35e7d1dad5eaa4e33c6284e037546e266c44756"
+      "bytes": 64923,
+      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9"
     },
     {
       "path": "docs/synth-fm2608/vgm_presets.js",
@@ -1906,7 +1906,7 @@
   ],
   "sourceArchive": {
     "path": "sources/fm2608-synth-browser-inputs.zip",
-    "bytes": 941417,
-    "sha256": "0e495e61198fe8fa6e392473de1ba0f5f7c392a948458e76e0ba32fe0cf618ee"
+    "bytes": 942224,
+    "sha256": "6088e7b192fad6a5d3f55b6f3352b6f2d0596fc69783df3de2190da5a77227e7"
   }
 }
