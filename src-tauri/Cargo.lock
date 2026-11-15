@@ -3603,7 +3603,7 @@ dependencies = [
 
 [[package]]
 name = "tetorica-fm2608-synth-tauri"
-version = "0.0.5"
+version = "0.0.7"
 dependencies = [
  "cpal",
  "serde",

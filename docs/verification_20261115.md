@@ -96,3 +96,30 @@ workflow. The desktop app version is `0.0.5`.
   `artifacts/fm-ui-tests.log` and `artifacts/fm-ui-desktop-browser.json`.
 - Rebuilt the local arm64 Release app with `--no-sign`. The build log is
   `artifacts/fm-ui-macos-build.log`.
+
+## Preset editor and Rhythm input follow-up
+
+- Imported `tetorica_fm2608_synth_dev-20261115-import-input-fixes_itch.zip`.
+  SHA-256 is `191fe980c66751757970cfb771d35f1a7667bf6180664a9b4fe18d94fa67cb07`.
+  All 181 files pass the readable source import check. App version is `0.0.5`.
+- Monaco loads preset JSON models on demand. A 500-preset library and 250
+  selections produce no listener warnings in Chromium or WebKit. JavaScript
+  completion / definition navigation and JSON text recovery work. JSON Undo
+  history is released when switching documents.
+- A finished reference channel can prepare paused audition at its ending
+  position for parameter edits and the first keyboard attack. Song view before
+  playback can also prepare a paused editor.
+- Rhythm Auto pads show Bass drum (F), Snare (G), Cymbal (H), Hi-hat (J), Tom (K)
+  and Rim shot (L). A selected physical voice displays Any key. Browser tests
+  verify the six actual rhythm triggers and Octave changes.
+- Parent unit checks pass 257 tests and packaged browser checks pass 32 per
+  engine. The actual Monaco check passes six per engine. Desktop tests pass
+  33 Python and 47 JavaScript checks, plus nine desktop scenarios per engine.
+  Reports are `artifacts/import-input-tests.log` and
+  `artifacts/import-input-desktop-browser.json`.
+- The local unsigned arm64 Release app builds. Its log is
+  `artifacts/import-input-macos-build.log`.
+- The reported itch.io parent-to-child frame access message has no caller
+  stack. The actual app passes a separate cross-origin iframe check with no
+  console errors in Chromium or WebKit. The precise itch.io caller remains
+  unidentified. The parent report is `build/fm2608-cross-origin-embed.json`.

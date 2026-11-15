@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "product": "Tetorica FM2608 Synth",
   "productId": "tetorica-fm2608-synth",
-  "version": "dev-20261115-fm-controls",
+  "version": "dev",
   "builder": {
     "name": "source-copy",
     "minify": false,
@@ -16,8 +16,8 @@
     {
       "path": "synth-fm2608/synth.js",
       "sourcePath": "docs/synth-fm2608/synth.js",
-      "bytes": 64923,
-      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9",
+      "bytes": 65895,
+      "sha256": "2ae36ce507021ab0a05f96df2e097a84e94281335bf811e2586ea150d82b5c0f",
       "localImports": [
         "../js/soundchip_pitch.js",
         "../js/tfi.js",
@@ -628,8 +628,8 @@
     {
       "path": "playground/playground_monaco.js",
       "sourcePath": "docs/playground/playground_monaco.js",
-      "bytes": 23172,
-      "sha256": "fada1db8d8ed7278ad44afe7578c74f24bd9f99236b9c4e17220c5f27d35d03b",
+      "bytes": 23112,
+      "sha256": "2f46e48535bdf8419dd9187c6b887dc50646bdee3f5f35a0e1c2a67860dacd45",
       "localImports": [
         "./playground_declarations.js?v=ps1-vab-api-1",
         "./playground_monaco_completion.js?v=ps1-vab-api-1",
@@ -786,8 +786,8 @@
     {
       "path": "synth-fm2608/song_controls.js",
       "sourcePath": "docs/synth-fm2608/song_controls.js",
-      "bytes": 12718,
-      "sha256": "e3717b90b98529583cdc1dce4e44d44b0602d345e9e60ce0aafa2828969b5a44",
+      "bytes": 14220,
+      "sha256": "12e5e24e3e915e16b8672525b42e849f82172f8eb76f94f756b2fa4ebf221679",
       "localImports": [
         "./song_player.js",
         "./song_state.js"
@@ -808,8 +808,8 @@
     {
       "path": "synth-fm2608/song_player.js",
       "sourcePath": "docs/synth-fm2608/song_player.js",
-      "bytes": 27519,
-      "sha256": "1e9b3d0cc4c22c91ffc3d62747255a0f2545a10f3f5ce0fee2eea4ca5f441ba6",
+      "bytes": 27616,
+      "sha256": "f3ed1d1340f0bb09cfba89349b149c1e38b87a1a8129e13e5bd0ff0c8797d75f",
       "localImports": [
         "../js/vgmplayer.js",
         "../js/ym2608synth.js",
@@ -862,8 +862,8 @@
     {
       "path": "synth-fm2608/synth.js",
       "sourcePath": "docs/synth-fm2608/synth.js",
-      "bytes": 64923,
-      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9",
+      "bytes": 65895,
+      "sha256": "2ae36ce507021ab0a05f96df2e097a84e94281335bf811e2586ea150d82b5c0f",
       "localImports": [
         "../js/soundchip_pitch.js",
         "../js/tfi.js",
@@ -1360,8 +1360,8 @@
     },
     {
       "path": "docs/playground/playground_monaco.js",
-      "bytes": 23172,
-      "sha256": "fada1db8d8ed7278ad44afe7578c74f24bd9f99236b9c4e17220c5f27d35d03b"
+      "bytes": 23112,
+      "sha256": "2f46e48535bdf8419dd9187c6b887dc50646bdee3f5f35a0e1c2a67860dacd45"
     },
     {
       "path": "docs/playground/playground_monaco_completion.js",
@@ -1405,8 +1405,8 @@
     },
     {
       "path": "docs/synth-fm2608/README.md",
-      "bytes": 9675,
-      "sha256": "0fcd27f3526f11bc32326ab3714b934d41c4c4f9d129d5e5e07b411330ecfeff"
+      "bytes": 10283,
+      "sha256": "3a87c9a1fac1345aeb8a39bdb0b7d95c663901ede8e366c7ac99fe901516f579"
     },
     {
       "path": "docs/synth-fm2608/audio.js",
@@ -1445,8 +1445,8 @@
     },
     {
       "path": "docs/synth-fm2608/index.html",
-      "bytes": 22670,
-      "sha256": "dc5f2cb5a4baf2911358cb61c620442797e2e4d67bc3c447477c3f3ac7e0bd06"
+      "bytes": 22750,
+      "sha256": "98c379268ce1f7c29794a91ef3b08b7686f1bb886d7aaa213ef5ddcdb543a402"
     },
     {
       "path": "docs/synth-fm2608/output_mix.js",
@@ -1465,8 +1465,8 @@
     },
     {
       "path": "docs/synth-fm2608/song_controls.js",
-      "bytes": 12718,
-      "sha256": "e3717b90b98529583cdc1dce4e44d44b0602d345e9e60ce0aafa2828969b5a44"
+      "bytes": 14220,
+      "sha256": "12e5e24e3e915e16b8672525b42e849f82172f8eb76f94f756b2fa4ebf221679"
     },
     {
       "path": "docs/synth-fm2608/song_engine.js",
@@ -1475,8 +1475,8 @@
     },
     {
       "path": "docs/synth-fm2608/song_player.js",
-      "bytes": 27519,
-      "sha256": "1e9b3d0cc4c22c91ffc3d62747255a0f2545a10f3f5ce0fee2eea4ca5f441ba6"
+      "bytes": 27616,
+      "sha256": "f3ed1d1340f0bb09cfba89349b149c1e38b87a1a8129e13e5bd0ff0c8797d75f"
     },
     {
       "path": "docs/synth-fm2608/song_source.js",
@@ -1500,8 +1500,8 @@
     },
     {
       "path": "docs/synth-fm2608/synth.js",
-      "bytes": 64923,
-      "sha256": "404667d926c4804e6b3cc0258f9bbe535dbcd0f50534f8043346b9159f2f66c9"
+      "bytes": 65895,
+      "sha256": "2ae36ce507021ab0a05f96df2e097a84e94281335bf811e2586ea150d82b5c0f"
     },
     {
       "path": "docs/synth-fm2608/vgm_presets.js",
@@ -1906,7 +1906,7 @@
   ],
   "sourceArchive": {
     "path": "sources/fm2608-synth-browser-inputs.zip",
-    "bytes": 942224,
-    "sha256": "6088e7b192fad6a5d3f55b6f3352b6f2d0596fc69783df3de2190da5a77227e7"
+    "bytes": 943328,
+    "sha256": "6f8e881980424616b93067ad60e216e4bb6ee49020280da3f700490417c2f922"
   }
 }
