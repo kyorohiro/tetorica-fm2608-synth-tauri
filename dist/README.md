@@ -27,6 +27,53 @@ sample with adjustable tuning, playback level and whole-sample Repeat.
 Base rate sets the playback speed at the Root note. The Playback readout follows
 the hardware rate while keyboard notes transpose that base rate.
 
+The software Triangle starts at a zero crossing. ADPCM-B resets its predictor
+at sample start / Repeat, so starting at the negative peak caused an avoidable
+left-edge transient every cycle. The phase change retains its length, pitch
+and level. The canvas continues to show actual decoded ADPCM; imported data
+and the inherent reconstruction limits of abrupt Saw / Square edges are retained.
+
+The generated 128-point Sine also uses an app-specific ADPCM encoding that
+considers both the fresh decoder and Repeat reset. It reduces the initial
+flat section without changing the PCM target, tuning, length or gain. The
+canvas still shows decoded ADPCM, so its 4-bit quantization remains visible.
+Other generated waves, drawings and newly loaded audio use a bounded lookahead
+ADPCM encoder. It checks possible future codes rather than choosing solely by
+the next decoded sample. Candidate output is checked against the ordinary
+encoder for fresh and Repeat decoding. Source PCM timing, amplitude and length
+are retained; existing preset bytes are not rewritten. To regenerate a saved
+wave, press its **Software wave** button or reload the original audio.
+
+ADPCM is lossy: a fresh decoder starts at zero with a small prediction step,
+so a Saw beginning at −0.6 cannot reach that level immediately. Abrupt waveform
+edges can remain rounded even after better encoding. The plot/export show
+actual reconstructed ADPCM, including that limitation; they do not substitute
+an ideal template. RF5C164 stores PCM amplitudes directly and has different
+reconstruction behavior.
+
+Keyboard ADPCM-B release and `opna.adpcm.noteOff()` use a **Synth software**
+12 ms volume fade. One request reaches the dedicated Synth AudioWorklet, which
+starts the fade on its own audio clock. Delayed message delivery delays its
+start without compressing the fade into an abrupt cut. The renderer updates
+changed integer volume levels at output-frame boundaries and leaves physical
+volume zero after completion until a later gate or volume command restores it.
+No stream of Main-thread timestamps or JavaScript timers renders this fade.
+`opna.adpcm.keyOff()` retains the immediate hardware operation. An 8-bit volume
+control can still leave small quantization steps; numerical silence at the
+final Stop alone does not establish that the whole release is inaudible.
+Authored volume and captured sample data remain unchanged. Retriggers, raw
+gate/sample changes, presets, transport changes and later song writes retire
+old release tails. Paused and playing reference-channel audition use the same
+bounded release policy through their synchronous reference-render queue;
+original VGM note commands remain raw.
+
+**Menu → New → Cassette…** creates a fresh default sound and original starter
+Code. Choose Cancel, export the current Cassette and create, or create without
+exporting. New Code does not run automatically. Cancelled/failed replacement
+retains portable Files/settings/identity; already-retired performance state is
+not resumed automatically. Import / Export → Cassette · ZIP retain the existing
+project format.
+
 Import and export FM patches as TFI or VGI from the top-left menu. A complete
 OPNA sound, including its ADPCM sample, can be saved as a JSON preset in Files.
 The Mixer provides software channel mutes shared by Keyboard and Code.
@@ -102,11 +149,16 @@ continues to use the bundled Tetorica synthetic ROM.
 
 ## Output Mixer
 
-Mixer has separate 0–380% software levels for the FM / Rhythm / ADPCM stereo
-bus and the SSG mono bus. They apply to Keyboard, Code and reference playback.
+Mixer has independent 0–380% software levels for **FM, SSG, Rhythm and ADPCM**.
+They apply to Keyboard, Code and reference playback before the source outputs
+are mixed, while keeping sound registers and hardware envelope levels intact.
 The current effective multipliers include the manual faders, YM2203 correction
 and selected VGM volume entries. Channel mute buttons and the final Master
 remain available alongside these levels.
+
+YM2203 correction and VGM volume entries affect FM and SSG only; Rhythm and
+ADPCM retain their individual fader values. The source faders are separate
+from the Rhythm volume and ADPCM Level controls that program the sound chip.
 
 YM2203 mode can also be enabled manually. A newly selected song sets the mode
 from its source chip while retaining manual fader values. Gain changes preserve

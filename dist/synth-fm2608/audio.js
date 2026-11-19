@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: BSD-3-Clause
-import {YM2608RuntimeSynth} from '../js/ym2608synth.js';
-import {readSamplePCM,encodeAdpcmB} from '../js/adpcm_b_sample.js';
+import {YM2608RuntimeSynth} from '../js/ym2608synth.js?v=ym2608-source-gains-1';
+import {readSamplePCM} from '../js/adpcm_b_sample.js';
+import {encodeFm2608Adpcm} from './adpcm_encoder.js?v=opna-adpcm-lookahead-1';
 import {noteToHz,opnPitchFromHz} from '../js/soundchip_pitch.js';
 import {createSynthCodeOutput} from '../synth/synth_code_output.js';
 import {createYm2612RegisterState} from '../synth/synth_song_state.js';
-import {createDefaultPreset,readPreset,encodeBase64,decodeBase64,MAX_ADPCM_BYTES} from './preset.js';
+import {createDefaultPreset,readPreset,encodeBase64,decodeBase64,encodeGeneratedSine,MAX_ADPCM_BYTES} from './preset.js?v=opna-sine-release-2';
 import {installChannel3Controls,observeAdpcmMemory} from './sound_state.js';
+import {createFm2608AudioOwnedRelease} from './adpcm_audio_release.js?v=audio-owned-release-1';
 
 const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
 const nativeClearTimeout = globalThis.clearTimeout.bind(globalThis);
@@ -28,7 +30,7 @@ function checkVolume(volume) {
 /** Host software monitor mutes retain every original register write, including
  * Code writes. The chip client's own shadows keep the unmuted parameter values.
  */
-export function installMonitorMutes(chip,{onWrite = () => {}} = {}) {
+export function installMonitorMutes(chip,{onWrite = () => {},onAfterWrite = () => {},onReset = () => {},filterAdpcmVolume = value => value} = {}) {
   const transport = chip.transport, registers = [new Uint8Array(256),new Uint8Array(256)];
   const fmState = createYm2612RegisterState(chip.clock);
   const muted = {fm:Array(6).fill(false),ssg:Array(3).fill(false),rhythm:Array(6).fill(false),adpcm:[false]};
@@ -61,12 +63,19 @@ export function installMonitorMutes(chip,{onWrite = () => {}} = {}) {
     if (fm >= 0 && (muted.fm[fm] || stopped[fm])) return 127;
     if (port === 0 && register >= 8 && register <= 10 && muted.ssg[register - 8]) return 0;
     if (port === 0 && register >= 0x18 && register <= 0x1d && muted.rhythm[register - 0x18]) return value & 0x3f;
-    if (port === 1 && register === 11 && muted.adpcm[0]) return 0;
+    if (port === 1 && register === 11) return filterAdpcmVolume(muted.adpcm[0] ? 0 : value);
     return value;
   }
-  transport.write = (port,register,value) => write(port,register,filter(port,register,value));
-  if (batch) transport.writeBatch = writes => batch(writes.map(item => ({...item,value:filter(item.port,item.register,item.value)})));
-  transport.reset = () => { registers.forEach(values => values.fill(0)); stopped.fill(false); fmState.reset(); return reset?.(); };
+  transport.write = (port,register,value) => {
+    const result = write(port,register,filter(port,register,value));
+    onAfterWrite(port,register,value); return result;
+  };
+  if (batch) transport.writeBatch = writes => {
+    const result = batch(writes.map(item => ({...item,value:filter(item.port,item.register,item.value)})));
+    for (const item of writes) onAfterWrite(item.port,item.register,item.value);
+    return result;
+  };
+  transport.reset = () => { onReset(); registers.forEach(values => values.fill(0)); stopped.fill(false); fmState.reset(); return reset?.(); };
 
   function setMute(section,channel,value) {
     channelIndex(section,channel);
@@ -91,6 +100,7 @@ export function installMonitorMutes(chip,{onWrite = () => {}} = {}) {
 
 /** One OPNA feeds the Code FX insertion point, Stop fade and final Master. */
 export async function createFm2608Audio({volume = .7,onError = () => {},
+  createAdpcmRelease = createFm2608AudioOwnedRelease,
   createRuntime = options => new YM2608RuntimeSynth(options),
   createContext = () => new (globalThis.AudioContext ?? globalThis.webkitAudioContext)({latencyHint:'interactive'})} = {}) {
   checkVolume(volume);
@@ -99,10 +109,10 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
   codeInputNode.connect(codeFadeNode); codeFadeNode.connect(outputNode); outputNode.connect(context.destination);
   outputNode.gain.value = volume;
   const runtime = createRuntime({audioContext:context,outputNode:codeInputNode,masterVolume:1,
-    workletUrl:new URL('../js/ym2608-worklet.js',import.meta.url).href,
-    wasmUrl:new URL('../generated/ym2608_wasm.wasm',import.meta.url).href});
+    workletUrl:new URL('./audio_worklet.js?v=fm2608-source-mixer-1',import.meta.url).href,
+    wasmUrl:new URL('../generated/ym2608_wasm.wasm?v=fm2608-source-mixer-1',import.meta.url).href});
   const fade = createSynthCodeOutput({getContext:() => context,getGain:() => codeFadeNode});
-  let chip, monitor, channel3, memory, disposed = false, closing = null, stopping = null, queue = Promise.resolve();
+  let chip, monitor, channel3, memory, adpcmGuard, restoreAdpcmAfterStop = false, disposed = false, closing = null, stopping = null, queue = Promise.resolve();
   let preset = createDefaultPreset(), accepted = null, pitch = 0, sampleEpoch = 0;
   let gateEpoch = 0;
   let keyboardAdpcmRate = null, writingKeyboardRate = false;
@@ -220,6 +230,9 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
 
   function applyPreset(value) {
     const next = readPreset(value);
+    // Parameter-only UI edits must not hard-stop a musical release. Actual
+    // memory/range replacement below performs raw gate/memory operations,
+    // which retire the previous release through the existing observers.
     sampleEpoch++;
     const task = queue.then(() => installPreset(next));
     queue = task.catch(() => {});
@@ -257,7 +270,7 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
     if (section === 'fm') chip.keyOff(channel);
     else if (section === 'ssg') chip.ssg.keyOff(channel);
     else if (section === 'rhythm') chip.rhythm.keyOff(channel);
-    else chip.adpcm.keyOff();
+    else adpcmGuard.noteOff();
   }
   function setPitch(value) {
     if (!Number.isFinite(value) || value < -2 || value > 2) throw new RangeError('Pitch bend must be −2 to +2 semitones');
@@ -270,7 +283,7 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
   function stopAll() {
     if (disposed) return Promise.resolve();
     if (stopping) return stopping;
-    sampleEpoch++; gateEpoch++;
+    sampleEpoch++; gateEpoch++; adpcmGuard?.cancel();
     const task = (async () => {
       await fade.fadeOut();
       await queue;
@@ -284,7 +297,7 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
     stopping = result;
     return result;
   }
-  async function loadAudio(source,{rootNote = preset.adpcm.rootNote,sampleRate,signal} = {}) {
+  async function loadAudio(source,{rootNote = preset.adpcm.rootNote,sampleRate,signal,generatedShape} = {}) {
     const token = ++sampleEpoch;
     const pcm = await readSamplePCM(source,{signal,decodeAudio:bytes => context.decodeAudioData(bytes.slice(0))});
     signal?.throwIfAborted(); if (token !== sampleEpoch) throw cancelled(); assertOpen();
@@ -293,17 +306,20 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
     const deltaN = Math.round(requested * 144 * 65536 / chip.clock);
     if (deltaN < 1 || deltaN > 65535) throw new RangeError('Sample rate exceeds YM2608 range');
     const actualRate = deltaN * chip.clock / (144 * 65536);
-    const encoded = encodeAdpcmB(pcm,actualRate,MAX_ADPCM_BYTES);
+    // Keep the verified generated-Sine cycle encoding. Other generated waves,
+    // drawings and imported audio share the same bounded lookahead encoder.
+    const encoded = (generatedShape === 'sine' && encodeGeneratedSine(pcm,actualRate))
+      || encodeFm2608Adpcm(pcm,actualRate,MAX_ADPCM_BYTES);
     await queue;
     if (token !== sampleEpoch) throw cancelled();
     const next = readPreset(preset);
     next.adpcm = {...next.adpcm,data:encodeBase64(encoded.bytes),address:0,start:0,end:encoded.bytes.length,sampleRate:actualRate,rootNote};
     return applyPreset(next);
   }
-  function setWave(samples,{rootNote = preset.adpcm.rootNote,sampleRate} = {}) {
+  function setWave(samples,{rootNote = preset.adpcm.rootNote,sampleRate,generatedShape} = {}) {
     if (!samples || !Number.isSafeInteger(samples.length) || !samples.length) throw new TypeError('Wave requires normalized PCM samples');
     const rate = sampleRate ?? noteToHz(rootNote) * samples.length;
-    return loadAudio({channels:[Float32Array.from(samples)],sampleRate:rate},{rootNote,sampleRate:Math.min(rate,Math.floor(chip.clock / 144))});
+    return loadAudio({channels:[Float32Array.from(samples)],sampleRate:rate},{rootNote,sampleRate:Math.min(rate,Math.floor(chip.clock / 144)),generatedShape});
   }
   function capturePreset(base = preset) {
     assertOpen();
@@ -341,9 +357,10 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
   }
   function setMasterVolume(value) { checkVolume(value); assertOpen(); outputNode.gain.value = value; }
   function setOutputGains(value) { assertOpen(); return runtime.setOutputGains(value); }
+  function setSourceGains(value) { assertOpen(); return runtime.setSourceGains(value); }
   async function dispose() {
     if (closing) return closing;
-    disposed = true; sampleEpoch++; gateEpoch++; held.clear(); fade.dispose();
+    disposed = true; sampleEpoch++; gateEpoch++; held.clear(); fade.dispose(); adpcmGuard?.dispose();
     closing = (async () => {
       try { await runtime.close(); }
       finally {
@@ -357,10 +374,35 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
   try {
     await bounded(runtime.start(),'OPNA audio initialization timed out');
     chip = runtime.fm; memory = observeAdpcmMemory(chip);
+    const physicalWrite = chip.transport.write.bind(chip.transport);
+    const physicalBatch = chip.transport.writeBatch?.bind(chip.transport);
     monitor = installMonitorMutes(chip,{onWrite:(port,register,value) => {
       memory.observeWrite(port,register,value);
       if (port === 1 && (register === 9 || register === 10) && !writingKeyboardRate) keyboardAdpcmRate = null;
-    }});
+      if (port === 1 && register === 11) adpcmGuard?.volumeChanged();
+      if (port === 1 && register === 0) {
+        if (value & 0x80) adpcmGuard?.cancel({restore:true});
+        else if (value & 1) restoreAdpcmAfterStop = adpcmGuard?.cancel() || restoreAdpcmAfterStop;
+        else adpcmGuard?.cancel({stop:true,restore:true});
+      }
+      if (port === 1 && [2,3,4,5,12,13].includes(register)) adpcmGuard?.cancel({stop:true,restore:true});
+    },onAfterWrite:(port,register,value) => {
+      if (port === 1 && register === 0 && value & 1 && restoreAdpcmAfterStop) {
+        restoreAdpcmAfterStop = false; adpcmGuard.restore();
+      }
+    },onReset:() => adpcmGuard?.cancel(),filterAdpcmVolume:value => adpcmGuard?.filterVolume(value) ?? value});
+    adpcmGuard = createAdpcmRelease({
+      postMessage:runtime.node?.port?.postMessage ? message => runtime.node.port.postMessage(message) : null,
+      writePhysical:writes => { if (physicalBatch) physicalBatch(writes); else for (const {port,register,value} of writes) physicalWrite(port,register,value); },
+      now:() => context.currentTime,sampleRate:context.sampleRate,
+      getVolume:() => monitor.registers[1][11],getMuted:() => monitor.getState().adpcm[0],
+      getGate:() => Boolean(monitor.registers[1][0] & 0x80),
+      requestedOff() { monitor.registers[1][0] = 1; chip.adpcm.observeWrite(0,1); },
+    });
+    // App-only musical release. The original keyOff/reset/write API remains raw.
+    chip.adpcm.noteOff = () => { assertOpen(); return adpcmGuard.noteOff(); };
+    const upload = chip.transport.loadAdpcmMemory.bind(chip.transport);
+    chip.transport.loadAdpcmMemory = (...args) => { adpcmGuard.cancel({stop:true,restore:true}); return upload(...args); };
     channel3 = installChannel3Controls(chip,monitor,channel => {
       channelIndex('fm',channel); return preset.fm[channel].keyMask;
     });
@@ -368,7 +410,7 @@ export async function createFm2608Audio({volume = .7,onError = () => {},
     await applyPreset(preset);
     runtime.node?.addEventListener?.('processorerror',() => { report(new Error('OPNA audio processor failed. Enable audio to restart.')); void dispose(); });
     return {context,outputNode,codeInputNode,codeOutputNode:codeFadeNode,codeFadeNode,
-      getChip() { assertOpen(); return chip; },getPreset:() => readPreset(preset),applyPreset,setMasterVolume,setOutputGains,
+      getChip() { assertOpen(); return chip; },getPreset:() => readPreset(preset),applyPreset,setMasterVolume,setOutputGains,setSourceGains,
       noteOn,noteOff,setPitch,stopAll,loadAudio,setWave,
       getRegisterState() { assertOpen(); return monitor.registers.map(registers => Array.from(registers)); },
       getFmState() { assertOpen(); return monitor.getFmState(); },

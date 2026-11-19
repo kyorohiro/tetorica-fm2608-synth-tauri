@@ -25,8 +25,9 @@ def source_archive(original):
     return enclosed.getvalue()
 
 
-def release_files(text=b'readable fixture'):
-    files = {name: ('fixture ' + name).encode() for name in importer.REQUIRED}
+def release_files(text=b'readable fixture', *, legacy=False):
+    entries = importer.LEGACY_BROWSER_ENTRIES if legacy else importer.BROWSER_ENTRIES
+    files = {name: ('fixture ' + name).encode() for name in importer.REQUIRED | entries}
     files['index.html'] = text
     original = {}
     copies = {
@@ -74,12 +75,13 @@ def release_files(text=b'readable fixture'):
             {'path': name, 'size': value['bytes'], 'sha256': value['sha256']}
             for name, value in generated.items()]},
     }).encode()
-    module_names = sorted(importer.BROWSER_ENTRIES) + ['js/ym2608synth.js']
+    module_names = sorted(entries) + ['js/ym2608synth.js']
     files['js/ym2608synth.js'] = b'export const fixture = true;'
     modules = []
     for name in module_names:
         original['docs/' + name] = files[name]
-        dependencies = ['../generated/ym2608_wasm.js'] if name == 'js/ym2608-worklet.js' else []
+        dependencies = ['../generated/ym2608_wasm.js'] if name in (
+            'js/ym2608-worklet.js', 'synth-fm2608/audio_worklet.js') else []
         if name == 'synth-fm2608/synth.js':
             dependencies = ['../js/ym2608synth.js']
         modules.append({'path': name, 'sourcePath': 'docs/' + name,
@@ -88,7 +90,7 @@ def release_files(text=b'readable fixture'):
     files[importer.BROWSER_RECEIPT] = json.dumps({
         'schemaVersion': 1, 'product': 'Tetorica FM2608 Synth', 'productId': 'tetorica-fm2608-synth',
         'builder': {'name': 'source-copy', 'minify': False, 'bundle': False},
-        'bundles': [record for record in modules if record['path'] in importer.BROWSER_ENTRIES],
+        'bundles': [record for record in modules if record['path'] in entries],
         'modules': modules, 'originalInputs': [{'path': name, **plain(data)} for name, data in original.items()],
         'sourceArchive': {'path': importer.BROWSER_SOURCE_ARCHIVE, **plain(files[importer.BROWSER_SOURCE_ARCHIVE])},
         'sourceCheck': {'inputs': len(native_inputs), 'sdkVersion': pin['version']},
@@ -116,8 +118,32 @@ class ImportTests(unittest.TestCase):
             return importer.unpack(archive, Path(tmp) / 'out')
 
     def test_all_original_bytes_and_readable_sources_are_preserved(self):
-        files = release_files()
-        self.assertEqual(self.unpack(files), {name: importer.digest(data) for name, data in files.items()})
+        for legacy in (False, True):
+            files = release_files(legacy=legacy)
+            with self.subTest(legacy=legacy):
+                self.assertEqual(self.unpack(files), {name: importer.digest(data) for name, data in files.items()})
+
+    def test_both_worklet_layouts_require_the_selected_file_and_its_exact_receipts(self):
+        for legacy, name in ((False, 'synth-fm2608/audio_worklet.js'), (True, 'js/ym2608-worklet.js')):
+            for kind in ('missing', 'changed', 'unrecorded', 'mixed', 'unsupported'):
+                files = release_files(legacy=legacy)
+                if kind == 'missing':
+                    del files[name]
+                elif kind == 'changed':
+                    files[name] = b'changed processor'
+                elif kind == 'unrecorded':
+                    change_receipt(files, importer.BROWSER_RECEIPT,
+                                   lambda r: r.update(modules=[m for m in r['modules'] if m['path'] != name]))
+                elif kind == 'mixed':
+                    alternative = 'js/ym2608-worklet.js' if not legacy else 'synth-fm2608/audio_worklet.js'
+                    change_receipt(files, importer.BROWSER_RECEIPT,
+                                   lambda r: r['bundles'].append({'path': alternative, **plain(b'extra')}))
+                else:
+                    change_receipt(files, importer.BROWSER_RECEIPT,
+                                   lambda r: next(entry for entry in r['bundles'] if entry['path'] == name)
+                                   .update(path='synth-fm2608/unknown_worklet.js'))
+                with self.subTest(legacy=legacy, kind=kind), self.assertRaises(ValueError):
+                    self.unpack(files)
 
     def test_original_source_native_assets_effects_and_notices_cannot_change(self):
         for name in ['generated/ym2608_wasm.js', 'generated/ym2608_wasm.wasm',
@@ -151,7 +177,7 @@ class ImportTests(unittest.TestCase):
                 self.unpack(files)
 
     def test_missing_release_inputs_and_original_assets_are_rejected(self):
-        for name in [*importer.REQUIRED,
+        for name in [*importer.REQUIRED, *importer.BROWSER_ENTRIES,
                      'sources/code-effects/tetorica_src/native/audio_effect/graph.c',
                      'sources/ym2608-sdk/wasm/ym2608_wasm.cpp']:
             files = release_files(); del files[name]

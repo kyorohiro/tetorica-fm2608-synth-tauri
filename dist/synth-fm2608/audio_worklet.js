@@ -1,17 +1,22 @@
-import {OpnKeyboardInspector} from './playground_opn_inspector.js?v=ps1-mode-1';
-import {receiveChipInspector} from './playground_chip_inspector_state.js?v=rf5c164-notes-1';
-import {validateChipClock} from './playground_chip_clock.js?v=pokey-prepare-1';
-import {createPerformanceQueue, createPerformanceChipOwnership} from './playground_performance_queue.js';
-import {createOpnAuditionGuard, receiveOpnAuditionCommand} from './playground_audition_guard.js?v=audio-numeric-bindings-1';
-import {createChipPortReceiver} from "./playground_chip_port.js?v=audio-stability-2";
+// SPDX-License-Identifier: BSD-3-Clause
+// Standalone Synth processor: shared YM2608 rendering with app-only release.
+// Keep raw/default Worklet behavior in ../js/ym2608-worklet.js unchanged.
+import {OpnKeyboardInspector} from '../js/playground_opn_inspector.js?v=ps1-mode-1';
+import {receiveChipInspector} from '../js/playground_chip_inspector_state.js?v=rf5c164-notes-1';
+import {validateChipClock} from '../js/playground_chip_clock.js?v=pokey-prepare-1';
+import {createPerformanceQueue, createPerformanceChipOwnership} from '../js/playground_performance_queue.js';
+import {createOpnAuditionGuard, receiveOpnAuditionCommand} from '../js/playground_audition_guard.js?v=audio-numeric-bindings-1';
+import {createChipPortReceiver} from "../js/playground_chip_port.js?v=audio-stability-2";
 /**
- * @file ym2608-worklet.js
+ * @file audio_worklet.js
  * 実行環境: Browser（AudioWorkletGlobalScope）
  * 依存: AudioWorkletProcessor / registerProcessor と MessagePort。
  * AudioContext.audioWorklet.addModule() で読み込む専用エントリーポイント。音源コアの WASM も必要。
  */
-import ym2608ModuleFactory from "../generated/ym2608_wasm.js";
-import { Ym2608, YM2608_CLOCK, normalizeYm2608OutputGains } from "./ym2608.js?v=ym2608-output-gains-1";
+import ym2608ModuleFactory from "../generated/ym2608_wasm.js?v=fm2608-source-mixer-1";
+import { Ym2608, YM2608_CLOCK, normalizeYm2608OutputGains, normalizeYm2608SourceGains } from "../js/ym2608.js?v=ym2608-source-gains-1";
+
+import {createYm2608AdpcmRelease} from './adpcm_audio_receiver.js?v=audio-owned-release-1';
 
 class YM2608Processor extends AudioWorkletProcessor {
   constructor() {
@@ -21,7 +26,13 @@ class YM2608Processor extends AudioWorkletProcessor {
     this.chipRate = sampleRate;
     this.remainder = 0; this.lastLeft = 0; this.lastRight = 0;
     this.outputGains = {fm:1,ssg:1};
+    this.sourceGains = {fm:1,ssg:1,rhythm:1,adpcm:1};
     this.sectionOwners = {ssg: new Array(3).fill(null), rhythm: new Array(6).fill(null), adpcm: null};
+    // Standalone Synth opt-in only. The raw chip and Playground keyOff path
+    // stay immediate; a musical release runs entirely on the audio clock.
+    this.adpcmRelease = createYm2608AdpcmRelease({sampleRate, nowFrame:() => Math.max(currentFrame,this.renderFrame ?? currentFrame),
+      writePhysical:(register,value) => this.chip?.writeRegister(register,value,1),
+      onStop:() => { this.sectionOwners.adpcm = null; }});
     this.performanceOwnership = createPerformanceChipOwnership({
       writeFm: (register, value, port) => this.chip?.writeRegister(register, value, port),
       channelCount: 6,
@@ -43,6 +54,7 @@ class YM2608Processor extends AudioWorkletProcessor {
     });
     const receiveChipPort = createChipPortReceiver((data, reply) => handle(data, reply), undefined, {performanceQueue: this.performanceQueue});
     const handle = (data, reply = message => this.port.postMessage(message), performance) => {
+      if (this.adpcmRelease.receive(data)) return;
       this.performanceOwnership.observe(data, performance);
       this.observeSectionOwnership(data, performance);
       if(data.type==='clear-auditions')this.opnInspector?.clear();
@@ -61,12 +73,24 @@ class YM2608Processor extends AudioWorkletProcessor {
         } catch (error) { reply({type:'error',message:String(error.message ?? error)}); }
         return;
       }
+      if (data.type === 'source-gains') {
+        try {
+          const gains = normalizeYm2608SourceGains(data.gains,this.sourceGains);
+          this.chip?.setSourceGains(gains);
+          this.sourceGains = gains;
+        } catch (error) { reply({type:'error',message:String(error.message ?? error)}); }
+        return;
+      }
       if (data.type === 'loadRhythmRom' || data.type === 'loadAdpcmMemory') {
         const type = data.type === 'loadRhythmRom' ? 'rhythm-rom-loaded' : 'adpcm-memory-loaded';
         try {
           if (!this.chip) throw new Error('YM2608 is not ready');
           if (data.type === 'loadRhythmRom') this.chip.loadAdpcmARom(data.bytes);
-          else this.chip.loadAdpcmBMemory(data.bytes, data.address);
+          else {
+            const owner = this.adpcmRelease.getState().owner;
+            if (owner) this.adpcmRelease.receive({type:'synth-adpcm-release',action:'cancel',owner,stop:true,restore:true});
+            this.chip.loadAdpcmBMemory(data.bytes, data.address);
+          }
           reply({type, id: data.id});
         } catch (error) {
           reply({type, id: data.id, error: String(error.message ?? error)});
@@ -74,7 +98,7 @@ class YM2608Processor extends AudioWorkletProcessor {
         return;
       }
       if (data.type === "write" && this.chip) this.write(data.port, data.register, data.value);
-      if (data.type === "reset") this.chip?.reset();
+      if (data.type === "reset") { this.adpcmRelease.reset(); this.chip?.reset(); }
     };
     this.port.onmessage = ({data}) => {
       if(data?.type==='chip-inspector'&&receiveChipInspector(data,this.port,this.opnInspector?(action,method,args)=>action==='read'?this.opnInspector.read():this.opnInspector.invoke(method,args):null))return;
@@ -90,6 +114,7 @@ class YM2608Processor extends AudioWorkletProcessor {
         moduleOptions: { wasmBinary: new Uint8Array(wasmBinary) },
       });
       this.chip.setOutputGains(this.outputGains);
+      if (Object.values(this.sourceGains).some(value => value !== 1)) this.chip.setSourceGains(this.sourceGains);
       this.auditions = createOpnAuditionGuard(this.chip, 6);
       this.opnInspector = new OpnKeyboardInspector(this.chip,{kind:'ym2608',guard:this.auditions,clock:()=>this.clock??8000000,sampleRate});
       this.chipRate = this.chip.sampleRate(YM2608_CLOCK);
@@ -107,7 +132,7 @@ class YM2608Processor extends AudioWorkletProcessor {
   }
 
   write(port, register, value) {
-    this.chip.writeRegister(register, value, port);
+    this.chip.writeRegister(register, this.adpcmRelease.filterWrite(port,register,value), port);
   }
 
   observeSectionOwnership(data, performance) {
@@ -135,7 +160,7 @@ class YM2608Processor extends AudioWorkletProcessor {
       this.sectionOwners.rhythm[ch] = null; rhythmMask |= 1 << ch;
     }
     if (rhythmMask) this.chip?.writeRegister(0x10, 0x80 | rhythmMask, 0);
-    if (this.sectionOwners.adpcm === owner) { this.sectionOwners.adpcm = null; this.chip?.writeRegister(0, 1, 1); }
+    if (this.sectionOwners.adpcm === owner) { this.sectionOwners.adpcm = null; if (this.chip) this.write(1,0,1); }
   }
 
   process(_inputs, outputs) {
@@ -147,8 +172,11 @@ class YM2608Processor extends AudioWorkletProcessor {
     if (!this.sampleCounts || this.sampleCounts.length < left.length) this.sampleCounts = new Uint32Array(left.length);
     let frame = 0;
     while (frame < left.length) {
+      this.renderFrame = currentFrame + frame;
       if (this.performanceQueue.nextFrame() <= currentFrame + frame) this.performanceQueue.advance(currentFrame + frame);
-      const end = Math.min(left.length, this.performanceQueue.nextFrame() - currentFrame);
+      if (this.adpcmRelease.nextFrame() <= currentFrame + frame) this.adpcmRelease.advance(currentFrame + frame);
+      const end = Math.min(left.length, this.performanceQueue.nextFrame() - currentFrame,
+        this.adpcmRelease.nextFrame() - currentFrame);
       let samples = 0;
       for (let index = frame; index < end; index++) {
         this.remainder += this.chipRate;

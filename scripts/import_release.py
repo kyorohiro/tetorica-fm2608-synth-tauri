@@ -15,10 +15,12 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 BROWSER_RECEIPT = 'sources/fm2608-synth-browser.json'
 BROWSER_SOURCE_ARCHIVE = 'sources/fm2608-synth-browser-inputs.zip'
-BROWSER_ENTRIES = {
+BROWSER_COMMON_ENTRIES = {
     'synth-fm2608/synth.js', 'synth-fm2608/synth.css',
-    'js/ym2608-worklet.js', 'js/native-fx-worklet.js',
+    'js/native-fx-worklet.js',
 }
+BROWSER_ENTRIES = BROWSER_COMMON_ENTRIES | {'synth-fm2608/audio_worklet.js'}
+LEGACY_BROWSER_ENTRIES = BROWSER_COMMON_ENTRIES | {'js/ym2608-worklet.js'}
 DECLARATION_SOURCES = {
     f'playground/{name}.d.ts': f'docs/playground/{name}.d.ts'
     for name in ('tetorica-playground-globals', 'tetorica-playground-ym2608', 'tetorica-shell')
@@ -41,7 +43,7 @@ NATIVE_REQUIRED = {
 }
 REQUIRED = {
     'index.html', 'synth-fm2608/index.html', 'tetorica_fm2608_synth.webp', 'LICENSE',
-    BROWSER_RECEIPT, BROWSER_SOURCE_ARCHIVE, *BROWSER_ENTRIES,
+    BROWSER_RECEIPT, BROWSER_SOURCE_ARCHIVE, *BROWSER_COMMON_ENTRIES,
     'generated/ym2608_wasm.js', 'generated/ym2608_wasm.wasm',
     'sources/YM2608.json', 'sources/YM2608.md',
     'sources/ym2608-sdk/RELEASE-MANIFEST.json', 'sources/ym2608-sdk/soundchip-sdk.json',
@@ -108,7 +110,10 @@ def validate_release(destination, hashes):
             or builder.get('minify') is not False or builder.get('bundle') is not False):
         raise ValueError('Expected readable source-copy browser modules without minification or bundling')
     entries = records(browser.get('bundles'), 'browser entry')
-    if entries.keys() != BROWSER_ENTRIES:
+    # The release moved its processor to an app-specific entry for audio-owned
+    # ADPCM release. Accept either complete layout, never a partial/mixed list.
+    # Every selected entry still has to pass the source and module hash checks.
+    if entries.keys() not in (BROWSER_ENTRIES, LEGACY_BROWSER_ENTRIES):
         raise ValueError('Expected complete FM2608 Synth entry receipts')
     modules = records(browser.get('modules'), 'readable browser module')
     if not entries.keys() <= modules.keys():

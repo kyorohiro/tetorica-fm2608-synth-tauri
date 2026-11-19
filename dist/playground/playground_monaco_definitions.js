@@ -9,10 +9,18 @@ export function definitionSource(text, position, chip = 'ym2612', options = {}) 
   const prefix = lines.slice(0, position?.startLineNumber ?? position?.lineNumber ?? 1).join('\n');
   const owners = [...prefix.matchAll(/^(?:declare\s+)?(?:interface|type)\s+(\w+)/gm)];
   const owner = owners.at(-1)?.[1] ?? '';
+  if (symbol === 'assembleScspDsp' || symbol === 'disassembleScspDsp')
+    return {file:'scsp_dsp_assembler.js',symbol};
   // Member names such as play/stop belong to their declared media interface,
   // before similarly named global music helpers are considered.
   if(owner==='SnesCodeClient'&&['noteOn','noteOff','getState','allNotesOff','dispose'].includes(symbol))
     return {file:'synth-snes/code_client.js',symbol};
+  if(owner==='NesCodeClient'&&['noteOn','keyOn','getState','allNotesOff','dispose'].includes(symbol))
+    return {file:'synth-2a03/code_endpoint.js',symbol:'createNesCodeClient'};
+  if(owner==='AswanCodeClient'&&['getState','noteOff','dispose'].includes(symbol))
+    return {file:'synth-aswan/code_endpoint.js',symbol:'createAswanCodeClient'};
+  if(owner==='ScspCodeClient')
+    return {file:'synth-scsp/code_endpoint.js',symbol:'createScspCodeClient'};
   if(owner==='Fm2608CodeClient') {
     if(['setTimerA','setCsm','setChannel3Mode','getChannel3State'].includes(symbol))
       return {file:'synth-fm2608/sound_state.js',symbol:symbol==='setCsm'?'installChannel3Controls':symbol};
@@ -61,8 +69,10 @@ export function definitionSource(text, position, chip = 'ym2612', options = {}) 
   if (['hzToBlockFnum', 'createPitchFromMidi'].includes(symbol)) return {file:'pitch.js', symbol};
   if (['noteToBlockFnum', 'play', 'scale', 'chord', 'noteLerp'].includes(symbol)) return {file:'playground_music.js', symbol};
   if (/^Playground(?:Primary)?Ps1/.test(owner)||owner==='SpuCodeClient') return {file:'ps1synth.js',symbol:/^(?:Playground|SpuCodeClient)/.test(symbol)?'Ps1Synth':symbol};
+  if (/^Playground(?:Primary)?Scsp/.test(owner)) return {file:'scspsynth.js',symbol:owner==='PlaygroundScsp'&&!/^Playground/.test(symbol)?'ScspSynth.'+symbol:'ScspSynth'};
   if (/^PlaygroundNes$/.test(owner)) return {file:'nesapusynth.js', symbol};
   if (/^PlaygroundGameboy$/.test(owner)) return {file:'gameboysynth.js', symbol};
+  if (/^Playground(?:Primary)?WonderSwan(?:TimelineBuilder)?$/.test(owner)) return {file:'wonderswansynth.js',symbol:/^Playground/.test(symbol)?'WonderSwanSynth':symbol};
   if(owner==='Huc6280CodeClient'&&['getState','noteOn','noteOff','dispose'].includes(symbol))
     return {file:'synth-huc6280/instrument.js',symbol:{getState:'observeCode',noteOn:'_liveNoteOn',noteOff:'noteOff',dispose:'stop'}[symbol]};
   if(/^Playground(?:Primary)?Huc6280/.test(owner)||owner==='Huc6280CodeClient')
@@ -75,6 +85,26 @@ export function definitionSource(text, position, chip = 'ym2612', options = {}) 
   if (/^PlaygroundRf5c164$/.test(owner)) return {file:'rf5c164synth.js', symbol};
   if (/^(?:PlaygroundSegaPsg|PSGApi)$/.test(owner)) return {file:'segapsgsynth.js', symbol};
   if (/^Playground(?:Primary)?(?:Opll|Ym2413)/.test(owner)) return {file:'ym2413synth.js',symbol:/^Playground/.test(symbol) ? 'YM2413Synth' : symbol};
+  if (owner === 'PlaygroundYm2612OperationRecorder' || /^PlaygroundYm2612(?:BuildOptions|OperationProgram)$/.test(owner))
+    return {file:'ym2612_operations.js',symbol:'buildYm2612Operations'};
+  if (owner === 'PlaygroundYm2612StateSnapshot') return {file:'ym2612_timed_state.js',symbol:'createYm2612TimedSnapshot'};
+  if (owner === 'PlaygroundYm2612CompiledWrite') return {file:'ym2612_operations.js',symbol:'compileYm2612Operations'};
+  if (/^PlaygroundYm2612(?:TimedApi|CompileOptions|ScheduleOptions|ScheduleReceipt)$/.test(owner) ||
+      ['YM2612FMApi','PlaygroundCreatedFm','SynthCodeFm'].includes(owner) && ['build','compile','captureState','schedule','clearSchedule'].includes(symbol))
+    return symbol === 'build' ? {file:'ym2612_operations.js',symbol:'buildYm2612Operations'} : {file:'ym2612_timed_client.js',symbol:'attachYm2612TimedClient'};
+  if (owner === 'PlaygroundAy8910OperationRecorder' ||
+      /^PlaygroundAy8910(?:BuildOptions|RecordedMethod|OperationTime|RecordedOperation|OperationProgram)$/.test(owner)) {
+    return {file:'ay8910_operations.js',symbol:'buildAyOperations'};
+  }
+  if (owner === 'PlaygroundAy8910StateSnapshot') return {file:'ay8910_timed_state.js',symbol:'createAyTimedSnapshot'};
+  if (owner === 'PlaygroundAy8910CompiledWrite') return {file:'ay8910_operations.js',symbol:'compileAyOperations'};
+  if (/^PlaygroundAy8910(?:CompileOptions|ScheduleOptions|ScheduleReceipt)$/.test(owner))
+    return {file:'ay8910_timed_client.js',symbol:'attachAyTimedClient'};
+  if ((/^Playground(?:Primary)?Ay8910$/.test(owner) || owner === 'YmCodeClient') &&
+      ['build','compile','captureState','schedule','clearSchedule'].includes(symbol)) {
+    return symbol === 'build' ? {file:'ay8910_operations.js',symbol:'buildAyOperations'} :
+      {file:'ay8910_timed_client.js',symbol:'attachAyTimedClient'};
+  }
   if (/^Playground(?:Primary)?(?:Ay8910|AY8910)/.test(owner)) return {file:'ay8910synth.js',symbol:/^Playground/.test(symbol) ? 'AY8910Synth' : symbol};
   if (/^Playground(?:Primary)?Opl/.test(owner)) return {file:'opl_synth.js',symbol:/^Playground(?:Primary)?Opl/.test(symbol) ? 'OPLSynth' : symbol};
   if (/^PlaygroundPWM32X$/.test(owner)) return {file:'pwm32x_playback.js', symbol};
