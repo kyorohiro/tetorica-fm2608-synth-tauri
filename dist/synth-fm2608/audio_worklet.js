@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Standalone Synth processor: shared YM2608 rendering with app-only release.
 // Keep raw/default Worklet behavior in ../js/ym2608-worklet.js unchanged.
+import {createYm2608TimedProcessor,observeYm2608TimedChip} from '../js/ym2608_timed_processor.js';
 import {OpnKeyboardInspector} from '../js/playground_opn_inspector.js?v=ps1-mode-1';
 import {receiveChipInspector} from '../js/playground_chip_inspector_state.js?v=rf5c164-notes-1';
 import {validateChipClock} from '../js/playground_chip_clock.js?v=pokey-prepare-1';
@@ -16,6 +17,7 @@ import {createChipPortReceiver} from "../js/playground_chip_port.js?v=audio-stab
 import ym2608ModuleFactory from "../generated/ym2608_wasm.js?v=fm2608-source-mixer-1";
 import { Ym2608, YM2608_CLOCK, normalizeYm2608OutputGains, normalizeYm2608SourceGains } from "../js/ym2608.js?v=ym2608-source-gains-1";
 
+import {createFm2608FmSsgMonitor} from './fm_ssg_monitor.js';
 import {createYm2608AdpcmRelease} from './adpcm_audio_receiver.js?v=audio-owned-release-1';
 
 class YM2608Processor extends AudioWorkletProcessor {
@@ -27,20 +29,22 @@ class YM2608Processor extends AudioWorkletProcessor {
     this.remainder = 0; this.lastLeft = 0; this.lastRight = 0;
     this.outputGains = {fm:1,ssg:1};
     this.sourceGains = {fm:1,ssg:1,rhythm:1,adpcm:1};
+    this.rhythmActiveMask = 0; this.adpcmActive = false;
     this.sectionOwners = {ssg: new Array(3).fill(null), rhythm: new Array(6).fill(null), adpcm: null};
     // Standalone Synth opt-in only. The raw chip and Playground keyOff path
     // stay immediate; a musical release runs entirely on the audio clock.
     this.adpcmRelease = createYm2608AdpcmRelease({sampleRate, nowFrame:() => Math.max(currentFrame,this.renderFrame ?? currentFrame),
-      writePhysical:(register,value) => this.chip?.writeRegister(register,value,1),
+      writePhysical:(register,value) => this.writeAdpcmPhysical?.(register,value),
       onStop:() => { this.sectionOwners.adpcm = null; }});
     this.performanceOwnership = createPerformanceChipOwnership({
       writeFm: (register, value, port) => this.chip?.writeRegister(register, value, port),
       channelCount: 6,
     });
     this.performanceQueue = createPerformanceQueue({
-      apply: (data, reply, _frame, performance) => handle(data, reply, performance),
+      apply: (data, reply, _frame, performance) => handle(data, reply, performance, _frame),
       onCancelOwner: owner => { this.performanceOwnership.cancel(owner); this.cancelSectionOwner(owner); },
       nowFrame: () => currentFrame, sampleRate,
+      patternCommandCost:command=>command.method==='applyTimedOperation'?command.writeCost:1,
       prepare: (data, reply) => {
         if (data.type === 'loadRhythmRom' || data.type === 'loadAdpcmMemory') { handle(data, reply); return null; }
         if (data.type !== 'chip-clock') return data;
@@ -52,8 +56,41 @@ class YM2608Processor extends AudioWorkletProcessor {
         } catch (error) { reply?.({type: 'chip-clock-result', id: data.id, error: error.message}); return null; }
       },
     });
-    const receiveChipPort = createChipPortReceiver((data, reply) => handle(data, reply), undefined, {performanceQueue: this.performanceQueue});
-    const handle = (data, reply = message => this.port.postMessage(message), performance) => {
+    this.instanceId='ym2608:'+Math.random().toString(36).slice(2);
+    this.timed=createYm2608TimedProcessor({performance:{...this.performanceQueue,receive:(data,port)=>this.performanceQueue.receive(data,message=>port.postMessage(message))},
+      getState:()=>{if(!this.timedChip)throw new Error('YM2608 timed API not ready');return this.timedChip.getState();},
+      getConfig:()=>({instanceId:this.instanceId,clock:this.clock??8000000,engine:'ymfm'}),
+      dispatch:(data,port,frame,metadata)=>handle(data,m=>port.postMessage(m),metadata),nowFrame:()=>currentFrame,sampleRate});
+    const receiveChipPort = createChipPortReceiver((data, reply) => handle(data, reply), undefined, {performanceQueue: this.performanceQueue,receiveControl:(data,reply)=>{if(data?.method==='ym2608Timed')return this.timed.receive(data,{postMessage:reply});if(data?.method==='ym2608Retained'){handle(data,reply);return true;}return false;}});
+    const handle = (data, reply = message => this.port.postMessage(message), performance, frame = currentFrame) => {
+      if (this.fmSsgMonitor?.receive(data)) return;
+      if(data.method==='ym2608Timed'){this.timed.receive(data,{postMessage:reply});return;}
+      if(data.method==='applyTimedOperation'){this.timed.apply(data.operation,{postMessage:reply},frame,performance);return;}
+      if(data.method==='ym2608Retained'){
+        const [channel,level]=data.args??[];
+        if(Number.isInteger(channel)&&channel>=0&&channel<3&&Number.isInteger(level)&&level>=0&&level<=31&&this.timedChip)this.timedChip.getState().ssgLevels[channel]=level;
+        return;
+      }
+      if(performance?.timedOperation&&data.type==='write'){
+        if(data.port===1&&data.register===0&&(data.value&0xc1)!==0x80&&this.adpcmActive&&this.sectionOwners.adpcm!==performance.owner)return;
+        if(data.port===0&&data.register===0x10&&(data.value&0x80)){
+          let mask=data.value&63;
+          for(let ch=0;ch<6;ch++)if((this.rhythmActiveMask&(1<<ch))&&this.sectionOwners.rhythm[ch]!==performance.owner)mask&=~(1<<ch);
+          if((data.value&63)&&!mask)return;
+          if(mask!==(data.value&63))data={...data,value:(data.value&0xc0)|mask};
+        }
+        if(!this.performanceOwnership.canApplyTimed(data,performance))return;
+        if(data.port===0&&data.register>=8&&data.register<=10&&!(data.value&31)){
+          const owner=this.sectionOwners.ssg[data.register-8];
+          if(owner!==null&&owner!==performance.owner)return;
+        }
+        const previous=this.rhythmWriteOwner;this.rhythmWriteOwner=performance?.owner??null;
+        try {
+          if(this.opnInspector&&!this.opnInspector.writeTimedRegister(data.register,data.value,data.port))return;
+          if(!this.opnInspector)this.write(data.port,data.register,data.value,performance);
+        }finally{this.rhythmWriteOwner=previous;}
+        this.performanceOwnership.observe(data,performance);this.observeSectionOwnership(data,performance);return;
+      }
       if (this.adpcmRelease.receive(data)) return;
       this.performanceOwnership.observe(data, performance);
       this.observeSectionOwnership(data, performance);
@@ -97,8 +134,8 @@ class YM2608Processor extends AudioWorkletProcessor {
         }
         return;
       }
-      if (data.type === "write" && this.chip) this.write(data.port, data.register, data.value);
-      if (data.type === "reset") { this.adpcmRelease.reset(); this.chip?.reset(); }
+      if (data.type === "write" && this.chip) this.write(data.port, data.register, data.value, performance);
+      if (data.type === "reset") { this.adpcmRelease.reset(); this.chip?.reset(); this.fmSsgMonitor?.reset(); }
     };
     this.port.onmessage = ({data}) => {
       if(data?.type==='chip-inspector'&&receiveChipInspector(data,this.port,this.opnInspector?(action,method,args)=>action==='read'?this.opnInspector.read():this.opnInspector.invoke(method,args):null))return;
@@ -113,6 +150,24 @@ class YM2608Processor extends AudioWorkletProcessor {
         moduleFactory: ym2608ModuleFactory,
         moduleOptions: { wasmBinary: new Uint8Array(wasmBinary) },
       });
+      this.timedChip=observeYm2608TimedChip(this.chip,{onRhythmGate:value => this.observeRhythmGate(value),onAdpcmControl:value => this.observeAdpcmControl(value)});
+      const writeRegister = this.chip.writeRegister?.bind(this.chip) ?? ((register,value,port = 0) => {
+        this.chip.write(port * 2,register); this.chip.write(port * 2 + 1,value);
+      });
+      this.writeAdpcmPhysical=(register,value)=>{
+        // Release levels are physical monitoring, not new authored levels.
+        const authored=this.timedChip.getState().adpcmRegisters[register];
+        const result=writeRegister(register,value,1);
+        if(register===11)this.timedChip.getState().adpcmRegisters[register]=authored;
+        return result;
+      };
+      this.fmSsgMonitor = createFm2608FmSsgMonitor({
+        writePhysical:(port,register,value) => writeRegister(register,value,port),
+        filterAdpcmWrite:(port,register,value)=>this.adpcmRelease.filterWrite(port,register,value),
+        onAdpcmRegister:(register,value)=>{this.timedChip.getState().adpcmRegisters[register]=value;},
+        onRhythmLevel:(register,value) => {this.timedChip.getState().rhythmLevels[register-0x18]=value;},
+      });
+      this.chip.writeRegister = (register,value,port = 0) => this.fmSsgMonitor.write(port,register,value);
       this.chip.setOutputGains(this.outputGains);
       if (Object.values(this.sourceGains).some(value => value !== 1)) this.chip.setSourceGains(this.sourceGains);
       this.auditions = createOpnAuditionGuard(this.chip, 6);
@@ -131,8 +186,21 @@ class YM2608Processor extends AudioWorkletProcessor {
     }
   }
 
-  write(port, register, value) {
-    this.chip.writeRegister(register, this.adpcmRelease.filterWrite(port,register,value), port);
+  write(port, register, value, performance) {
+    const previous=this.rhythmWriteOwner;this.rhythmWriteOwner=performance?.owner??null;
+    try { this.chip.writeRegister(register, value, port); } finally {this.rhythmWriteOwner=previous;}
+  }
+
+  observeAdpcmControl(value) {
+    this.adpcmActive=(value&0xc1)===0x80;
+    this.sectionOwners.adpcm=this.adpcmActive?(this.rhythmWriteOwner??null):null;
+  }
+
+  observeRhythmGate(value) {
+    for(let ch=0;ch<6;ch++)if(value&(1<<ch)){
+      if(value&0x80){this.rhythmActiveMask&=~(1<<ch);this.sectionOwners.rhythm[ch]=null;}
+      else {this.rhythmActiveMask|=1<<ch;this.sectionOwners.rhythm[ch]=this.rhythmWriteOwner??null;}
+    }
   }
 
   observeSectionOwnership(data, performance) {
@@ -142,12 +210,7 @@ class YM2608Processor extends AudioWorkletProcessor {
     const {register, value} = data;
     if ((data.port ?? 0) === 0) {
       if (register >= 8 && register <= 10) this.sectionOwners.ssg[register - 8] = value & 31 ? owner : null;
-      if (register === 0x10) for (let ch = 0; ch < 6; ch++) {
-        if (value & (1 << ch)) this.sectionOwners.rhythm[ch] = value & 0x80 ? null : owner;
-      }
-    } else if (data.port === 1 && register === 0) {
-      if (value & 0x80) this.sectionOwners.adpcm = owner;
-      else if (value & 1) this.sectionOwners.adpcm = null;
+
     }
   }
 
